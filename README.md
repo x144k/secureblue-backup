@@ -20,9 +20,9 @@ I built this on my daily driver running secureblue on a Lenovo Legion 7 Pro (16I
 
 ## Why this exists
 
-rpm-ostree systems fragment state across multiple layers. The base image is one thing, /etc overrides are another, /var holds persistent service data, and layered packages live outside the base image entirely. A full-disk clone captures all of this, but it also captures the base image unnecessarily, wasting space and complicating restoration. A file-level backup restricted to /home misses /etc and /var entirely.
+rpm-ostree systems fragment state across multiple layers. The base image is one thing, /etc overrides are another, /var holds persistent service data, and layered packages live outside the base image entirely. A full-disk clone captures all of this, but it also captures the base image unnecessarily, wasting space and complicating restoration. And a file-level backup restricted to /home misses /etc and /var entirely.
 
-This guide documents the specific split: what to preserve, what to ignore, and how to reconstruct a working system from those pieces. It is not about finding a new backup tool; it is about applying existing tools correctly to an atomic filesystem layout.
+This guide documents the specific split: what to preserve, what to ignore, and how to reconstruct a working system from those pieces. It's not about finding a new backup tool; it's about applying existing tools correctly to an atomic filesystem layout.
 
 ## What traditional approaches miss
 
