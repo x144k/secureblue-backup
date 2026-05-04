@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>secureblue-backup</title>
+<style>
+ :root {
+  --bg: #0d1117;
+  --fg: #c9d1d9;
+  --muted: #8b949e;
+  --border: #30363d;
+  --card: #161b22;
+  --accent: #58a6ff;
+  --ok: #3fb950;
+  --warn: #d29922;
+  --danger: #f85149;
+ }
+ * { box-sizing: border-box; }
+ body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  line-height: 1.6;
+ }
+ .container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+ }
+ h1 {
+  font-size: 2rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: .5rem;
+  margin-bottom: 1rem;
+ }
+ h2 {
+  font-size: 1.4rem;
+  margin-top: 2.5rem;
+  padding-bottom: .4rem;
+  border-bottom: 1px solid var(--border);
+ }
+ h3 {
+  font-size: 1.15rem;
+  margin-top: 2rem;
+  color: var(--fg);
+  border-left: 2px solid var(--accent);
+  padding-left: .8rem;
+ }
+
+ h2.topic {
+  color: var(--accent);
+ }
+ h2.phase {
+  color: var(--accent);
+ }
+ .symptom {
+  background: rgba(248,81,73,.08);
+  border-left: 3px solid var(--danger);
+  padding: .7rem 1rem;
+  margin: .6rem 0;
+  border-radius: 0 6px 6px 0;
+ }
+ .cause {
+  background: rgba(210,153,34,.08);
+  border-left: 3px solid var(--warn);
+  padding: .7rem 1rem;
+  margin: .6rem 0;
+  border-radius: 0 6px 6px 0;
+ }
+ .fix {
+  background: rgba(63,185,80,.08);
+  border-left: 3px solid var(--ok);
+  padding: .7rem 1rem;
+  margin: .6rem 0;
+  border-radius: 0 6px 6px 0;
+ }
+ p { margin: .8rem 0; }
+ a { color: var(--accent); text-decoration: none; }
+ a:hover { text-decoration: underline; }
+ code, pre {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: .9rem;
+ }
+ code {
+  background: var(--card);
+  padding: .15rem .35rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+ }
+ pre {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1rem;
+  overflow-x: auto;
+  line-height: 1.45;
+ }
+ pre code {
+  background: none;
+  padding: 0;
+  border: none;
+ }
+ .critical {
+  background: rgba(248,81,73,.1);
+  border-left: 4px solid var(--danger);
+  padding: .8rem 1rem;
+  margin: 1rem 0;
+  border-radius: 0 6px 6px 0;
+ }
+ .note {
+  background: rgba(41,128,185,.1);
+  border-left: 4px solid var(--accent);
+  padding: .8rem 1rem;
+  margin: 1rem 0;
+  border-radius: 0 6px 6px 0;
+ }
+ .screenshot {
+  margin: 1rem 0;
+  text-align: center;
+ }
+ .screenshot img {
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,.4);
+ }
+ .screenshot .caption {
+  color: var(--muted);
+  font-size: .9rem;
+  margin-top: .5rem;
+ }
+ .stack {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  margin: 1.5rem 0;
+ }
+ .layer {
+  padding: .9rem 1rem;
+  border-radius: 6px;
+  font-weight: 600;
+ }
+ .layer small {
+  display: block;
+  font-weight: 400;
+  color: rgba(255,255,255,.85);
+  margin-top: .2rem;
+ }
+ .l-user { background: #f85149; }
+ .l-config { background: #d29922; }
+ .l-packages { background: #a371f7; }
+ .l-deploy { background: #58a6ff; }
+ .l-base { background: #3fb950; }
+ table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+ }
+ th, td {
+  border: 1px solid var(--border);
+  padding: .6rem .8rem;
+  text-align: left;
+ }
+ th { background: var(--card); }
+ ul { margin: .5rem 0; padding-left: 1.5rem; }
+ li { margin: .35rem 0; }
+</style>
+<base target="_blank">
+</head>
+<body>
+<div class="container">
+
+<h1>secureblue-backup</h1>
+<p>Backup and disaster recovery for <a href="https://secureblue.dev/">secureblue OS</a>.</p>
+<p>This guide documents how to preserve, verify, and reconstruct a secureblue system after hardware failure, migration, or catastrophic misconfiguration. It's not about finding a new backup tool; it's about applying existing tools correctly to an atomic filesystem layout.</p>
+
+<h2>Stack Diagram</h2>
+<div class="stack">
+ <div class="layer l-user">
+  User Data
+  <small>Home directory, excluding cache and temp</small>
+ </div>
+ <div class="layer l-config">
+  System Config
+  <small>/etc overrides, /var persistent state, custom systemd units</small>
+ </div>
+ <div class="layer l-packages">
+  Layered Packages
+  <small>rpm-ostree install list for reproducible rebuilds</small>
+ </div>
+ <div class="layer l-deploy">
+  Deployment State
+  <small>Current deployment hash, rollback history, pinned deployments</small>
+ </div>
+ <div class="layer l-base">
+  secureblue Base
+  <small>Atomic OS / Restored via rebase, not backed up</small>
+ </div>
+</div>
+
+<h2 class="topic">What traditional approaches miss</h2>
+<p>This is what standard backup strategies get wrong on rpm-ostree. Your mileage may vary.</p>
+<ul>
+ <li><strong>Rsync or Borg to /usr:</strong> The base image in /usr is already reproducible via <code>rpm-ostree rebase</code>. Backing it up duplicates gigabytes of data that can be fetched from the upstream repository. The meaningful state lives in the overlays, not the base.</li>
+ <li><strong>File-level backup of /etc without metadata:</strong> rpm-ostree tracks /etc as a three-way merge between the base image, previous deployment, and current changes. Restoring plain files without understanding this merge model creates unmanaged drift that survives across rebases.</li>
+ <li><strong>Ignoring /var:</strong> Service state, container storage, and cached data live in /var. A home-directory-only backup loses this entirely. Some of it should be preserved; some is ephemeral and should be excluded by design.</li>
+ <li><strong>Forgetting layered packages:</strong> <code>rpm-ostree install</code> places packages in a separate layer. Rebuilding from a fresh rebase without recording these packages leaves you with a broken environment. The package list is part of the system state.</li>
+</ul>
+
+<h2 class="topic">What it does</h2>
+<p>The strategy consists of five components working together:</p>
+<ul>
+ <li><strong>User Data:</strong> Selective home directory backup, excluding cache, temp, and Flatpak runtime data. This is your documents, projects, and personal files.</li>
+ <li><strong>System Config:</strong> Capture of /etc overrides, /var persistent state, and custom systemd units. These are the changes you made to the system that survive reboots but aren't part of the base image.</li>
+ <li><strong>Layered Packages:</strong> Reproducible package list export for rpm-ostree rebuilds. This ensures you can reconstruct the exact same software environment after a rebase.</li>
+ <li><strong>Deployment State:</strong> Deployment hash, rollback history, and pinned deployment tracking. This gives you a snapshot of where you were in the update stream.</li>
+ <li><strong>Verification:</strong> Automated restore testing and integrity checks. A backup you've never tested is a false promise.</li>
+</ul>
+
+<h2 class="topic">The atomic backup mindset</h2>
+
+<p>Traditional backup wisdom says: image the whole disk, or at least back up <code>/</code> and <code>/home</code>. On an atomic system, this intuition leads you astray. The base operating system isn't your data; it's a managed artifact. Treating it like personal state wastes space, complicates restoration, and obscures what actually matters.</p>
+
+<p>This guide assumes a different mindset: the base image is disposable, the overlays are precious, and the goal is reconstruction, not cloning. You're not preserving a machine; you're preserving the deviation from a known good baseline.</p>
+
+<h3>When this matters</h3>
+<ul>
+ <li><strong>Drive failure:</strong> New hardware arrives blank. You need to reconstruct your environment without remembering every package you layered or every config file you touched six months ago.</li>
+ <li><strong>Bad rebase:</strong> You moved to a new secureblue image and something critical broke. You need to return to your previous deployment and package state quickly.</li>
+ <li><strong>Migration:</strong> You bought a new machine and want to move your setup without the archaeological dig of remembering what you changed.</li>
+ <li><strong>Configuration drift:</strong> You modified <code>/etc</code> over months and lost track. A captured config diff shows exactly what differs from base, which is invaluable for troubleshooting.</li>
+</ul>
+
+<h3>What "reconstruction" means</h3>
+<p>Restoration on an atomic system isn't <code>tar xzf backup.tar -C /</code>. It's:</p>
+<ol>
+ <li>Rebase to the same (or newer) base image</li>
+ <li>Reinstall the exact layered package set</li>
+ <li>Restore <code>/etc</code> and selective <code>/var</code> state on top of the new base</li>
+ <li>Restore user data from your file-level backup</li>
+ <li>Reboot into a system that behaves like the old one, built on fresh deployment metadata</li>
+</ol>
+
+<p>This is cleaner than cloning because it eliminates accumulated deployment cruft. Every restore is essentially a clean install plus your documented deviations.</p>
+
+<h2 class="topic">Btrfs snapshots: useful, but not sufficient</h2>
+
+<p>Fedora Silverblue and secureblue use Btrfs for <code>/sysroot</code>. The <code>rpm-ostree</code> tooling already creates deployment snapshots automatically every time you install, update, or rebase. You can roll back to a previous deployment from the bootloader menu if a new update breaks something. This is powerful local recovery.</p>
+
+<p>However, snapshots aren't backups. They live on the same physical disk as the live system. Drive failure, filesystem corruption, or theft destroys both the live data and the snapshot. They also don't capture your external user data in <code>/home</code> unless that directory is on the same Btrfs volume, which isn't guaranteed.</p>
+
+<p>Most users new to atomic systems will be told to "just use snapshots." That advice works for recovering from a bad update or a mistaken <code>/etc</code> edit, but it leaves you exposed to catastrophic loss. This guide treats snapshots as the first line of defense for daily mistakes, and off-system backups as the second line for disaster recovery. You should have both.</p>
+
+<h3>How snapshots fit into this strategy</h3>
+<ul>
+ <li><strong>Daily mistakes:</strong> Revert a bad config edit or broken package layer via the bootloader rollback menu. Fast, no external media needed.</li>
+ <li><strong>Pre-rebase safety:</strong> Pin your current deployment before rebasing. If the new image fails, roll back instantly.</li>
+ <li><strong>Not for drive failure:</strong> When the disk dies, snapshots die with it. That's where Phase 2 and your external backup matter.</li>
+</ul>
+
+<h2 class="topic">Why this guide mixes GUI and terminal</h2>
+
+<p>Pika Backup handles your personal files through a graphical interface because standard file backup is a solved problem with good GUI tools. The system state capture, however, remains command-line only. No graphical application currently understands rpm-ostree deployments, layered packages, or the three-way merge model of <code>/etc</code>. Until someone builds an atomic-aware backup GUI, the system-level phases require direct interaction with <code>rpm-ostree</code>, <code>tar</code>, and deployment metadata.</p>
+
+<h2 class="phase">Phase 0: Pre-flight Inventory</h2>
+
+<div class="critical">
+<strong>CRITICAL:</strong> Don't back up blindly. You must understand what state exists before you can preserve it. This phase is read-only; it changes nothing.
+</div>
+
+<h3>1. Inspect current deployment</h3>
+<pre><code># Show current deployment, pending updates, and rollback history
+rpm-ostree status 2>/dev/null</code></pre>
+
+<p>Save this output. It contains your current deployment hash, the image reference, and any pinned deployments you want to keep.</p>
+
+<h3>2. Identify layered packages</h3>
+<pre><code># List packages layered via rpm-ostree install
+rpm-ostree status --booted 2>/dev/null | grep "LayeredPackages:"</code></pre>
+
+<p>Alternatively, capture the full status as JSON for later parsing:</p>
+<pre><code>rpm-ostree status --json 2>/dev/null > ~/secureblue-backup-deployments.json</code></pre>
+
+<h3>3. Inspect /etc drift</h3>
+<pre><code># Show files in /etc that differ from the base image
+# This requires a previous deployment reference; compare current /etc to /usr/etc
+run0 /usr/bin/diff -qr /usr/etc /etc 2>/dev/null | head -n 50</code></pre>
+
+<div class="note">
+<strong>Skip:</strong> backup copies (trailing <code>-</code>), lock files (<code>.LOCK</code>), stamp files, identity files (<code>passwd</code>, <code>group</code>, <code>machine-id</code>, <code>adjtime</code>, <code>hostname</code>, <code>localtime</code>), auto-generated state (<code>fstab</code>, <code>cups/subscriptions.conf*</code>, <code>dconf/db/distro</code>, <code>nvme/hostid</code>, <code>nvme/hostnqn</code>, <code>selinux/*</code>), and ephemeral flags (<code>.pwd.lock</code>, <code>.rpm-ostree-shadow-mode-fixed2.stamp</code>).<br><br>
+<strong>Preserve:</strong> only files you explicitly created or edited.
+</div>
+
+<h3>4. Inspect /var state</h3>
+<pre><code># Identify large or important persistent state in /var
+run0 /usr/bin/du -sh /var/lib/* 2>/dev/null | sort -rh | head -n 20</code></pre>
+
+<div class="note">
+<strong>Preserve:</strong> <code>/var/lib/NetworkManager</code> (connection profiles and keys), <code>/var/lib/bluetooth</code> (pairing keys), <code>/var/lib/boltd</code> (Thunderbolt authorization), and <code>/var/lib/containers</code> (Podman images) if you use containers.<br><br>
+<strong>Skip:</strong> <code>/var/lib/rpm-ostree</code> (deployment metadata tied to this disk), auto-generated service state (<code>fwupd</code>, <code>chrony</code>, <code>alsa</code>, <code>upower</code>), ephemeral system state (<code>systemd</code>, <code>AccountsService</code>, <code>lastlog</code>), and metrics (<code>rpm-ostree-countme</code>, <code>secureblue</code>).
+</div>
+
+<h2 class="phase">Phase 1: Capture System State</h2>
+
+<div class="critical">
+<strong>CRITICAL:</strong> All commands in this phase use absolute paths because secureblue's <code>run0</code> wrapper strips <code>/usr/sbin</code> and <code>/sbin</code> from PATH. Copy-pasting standard commands will fail with "command not found."
+</div>
+
+<h3>1. Create backup staging directory</h3>
+<pre><code># Create a dedicated directory for all captured state
+# Use /var/home/$USER (your actual home) because /home is a symlink on some deployments
+/usr/bin/mkdir -p /var/home/$(/usr/bin/whoami)/secureblue-backup/{configs,packages,deployments,scripts}</code></pre>
+
+<h3>2. Export deployment state</h3>
+<pre><code># Save full rpm-ostree status for reference
+rpm-ostree status --json 2>/dev/null > /var/home/$(/usr/bin/whoami)/secureblue-backup/deployments/rpm-ostree-status.json
+
+# Save the current image reference in plain text for quick rebasing
+rpm-ostree status --booted 2>/dev/null | /usr/bin/grep -o 'ostree-[^[:space:]]*' | /usr/bin/head -n 1 > /var/home/$(/usr/bin/whoami)/secureblue-backup/deployments/current-image-ref.txt</code></pre>
+
+<h3>3. Export layered package list</h3>
+<pre><code># Extract layered packages from the booted deployment
+# rpm-ostree db list outputs ALL packages (base + layered), so we use status instead
+rpm-ostree status --booted 2>/dev/null | /usr/bin/grep "LayeredPackages:" | /usr/bin/sed 's/.*LayeredPackages: //' | /usr/bin/tr ' ' '\n' > /var/home/$(/usr/bin/whoami)/secureblue-backup/packages/layered-packages.txt
+
+# Also capture the exact rpm-ostree install command for documentation
+/usr/bin/echo "rpm-ostree install $(/usr/bin/paste -sd' ' /var/home/$(/usr/bin/whoami)/secureblue-backup/packages/layered-packages.txt)" > /var/home/$(/usr/bin/whoami)/secureblue-backup/packages/reinstall-command.sh
+/usr/bin/chmod +x /var/home/$(/usr/bin/whoami)/secureblue-backup/packages/reinstall-command.sh</code></pre>
+
+<h3>4. Capture /etc overrides</h3>
+<pre><code># Create a tar archive of /etc, preserving permissions and SELinux contexts
+# Exclude ephemeral directories that shouldn't be preserved
+run0 /usr/bin/tar czpf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/etc-backup.tar.gz  --exclude=/etc/resolv.conf  --exclude=/etc/localtime  --exclude=/etc/machine-id  --exclude=/etc/hostname  --exclude=/etc/mtab  /etc</code></pre>
+
+<div class="note">
+<strong>Note:</strong> Tar will print "Removing leading '/' from member names." This is harmless. Tar strips the leading slash as a security precaution when archiving absolute paths. Restoration with <code>-C /</code> still places files in the correct location.
+</div>
+
+<div class="note">
+<strong>Note:</strong> The exclusions above are ephemeral or auto-generated. Machine-id and hostname in particular shouldn't be blindly restored to new hardware. If you've installed my <a href="https://github.com/x144k/secureblue-hids">secureblue-hids</a> stack, add <code>--exclude=/etc/audit/rules.d/*</code> to the tar command above. Audit rules in that stack are managed by its own installation procedure; restoring them from a generic /etc backup would either conflict with that managed state or miss dependencies installed by its scripts. If you've applied that stack, reinstall audit rules via the HIDS guide instead.
+</div>
+
+<h3>5. Capture /var persistent state</h3>
+<pre><code># Identify what in /var you actually need. This is selective, not blanket.
+# Create a manifest of /var directories you want to preserve
+/usr/bin/cat > /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/var-manifest.txt &lt;&lt; 'EOF'
+# Uncomment the lines below for what you want to preserve:
+# /var/lib/containers     # Podman container images and volumes
+# /var/lib/libvirt       # Virtual machine images
+# /var/lib/flatpak       # Flatpak app data (often large; consider selective)
+# /var/lib/systemd       # Persistent systemd state
+# /var/lib/NetworkManager   # Network connection profiles
+# /var/log/journal       # Persistent journal logs
+# /var/spool          # Mail and cron spools
+EOF</code></pre>
+
+<p>Edit the manifest to match your needs, then archive the selected paths:</p>
+<pre><code># Example: backing up NetworkManager and systemd state only
+run0 /usr/bin/tar czpf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/var-selective.tar.gz  /var/lib/NetworkManager  /var/lib/systemd  /var/spool</code></pre>
+
+<div class="note">
+<strong>Note:</strong> Tar will print "Removing leading '/' from member names" and "Removing leading '/' from hard link targets." Both are harmless. If you include <code>/var/log/journal</code>, you may also see "file changed as we read it" for active journal files. This is expected; journald is actively writing while tar reads. The archive will still be valid.
+</div>
+
+<h3>6. Capture custom systemd units</h3>
+<pre><code># Custom units in /etc/systemd/system are already captured in the /etc tar
+# This step captures any user-level units in ~/.config/systemd/user
+/usr/bin/mkdir -p /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/user-systemd
+/usr/bin/cp -r ~/.config/systemd/user/* /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/user-systemd/ 2>/dev/null || true</code></pre>
+
+<h2 class="phase">Phase 2: User Data Backup with Pika Backup</h2>
+
+<p>Pika Backup is a graphical front-end for BorgBackup. It handles encryption, compression, scheduling, and exclusion lists through a clean GTK4 interface. This phase replaces command-line Borg with Pika for the user data portion of the backup.</p>
+
+<div class="note">
+<strong>Note:</strong> Pika Backup handles your personal files only. The system state capture in Phase 1 still requires command-line tools because no GUI currently understands rpm-ostree deployments.
+</div>
+
+<h3>1. Install Pika Backup</h3>
+
+<p><strong>Option A: GUI install (recommended for most users)</strong></p>
+<p>Open Bazaar, the software center that ships with secureblue. Search for "Pika Backup." Install the verified application. Secureblue enables only the <code>flathub-verified</code> remote by default, which filters to verified developers only. Bazaar will pull from this restricted source automatically.</p>
+
+<div class="screenshot">
+ <img src="images/1-pika-bazaar.webp" alt="Pika Backup in Bazaar">
+ <p class="caption">Install Pika Backup from the verified Flathub source in your software center.</p>
+</div>
+
+<p><strong>Option B: Command line</strong></p>
+<pre><code>flatpak install flathub-verified org.gnome.World.PikaBackup</code></pre>
+
+<p>Use this if you prefer the terminal or are scripting the setup. The <code>flathub-verified</code> remote is the default on secureblue; don't use the unqualified <code>flathub</code> remote.</p>
+
+<h3>2. Launch and start creating a repository</h3>
+<p>Open Pika Backup. On the initial screen, click <strong>Setup Backup</strong>. Then click <strong>Create Repository</strong> and choose either <strong>Location on Disk</strong>, or point it to an external drive with a dedicated backup directory. The <strong>Remote Location</strong> option is beyond the scope of this guide.</p>
+
+<div class="screenshot">
+ <img src="images/2-pika-backup-initial.webp" alt="Pika Backup initial screen">
+ <p class="caption">Start creating a repository from the initial screen.</p>
+</div>
+
+<h3>3. Configure repository details and encryption</h3>
+<p>On the <strong>Configure Repository</strong> screen, alter the repository folder and name as needed. Then click <strong>Continue</strong>.</p>
+
+<div class="screenshot">
+ <img src="images/3a-pika-repo.webp" alt="Pika Backup configure repository">
+ <p class="caption">Set the repository folder and name on the Configure Repository screen.</p>
+</div>
+
+<p>On the <strong>Setup Encryption</strong> screen, decide whether you want encryption. If you enable it, set a strong password and back it up somewhere secure before proceeding. Without this password, your backup is unrecoverable. If you don't want encryption, leave the toggle off. Then click <strong>Create</strong> to finalize the repository.</p>
+
+<div class="screenshot">
+ <img src="images/3b-pika-encrypt.webp" alt="Pika Backup encryption setup">
+ <p class="caption">Configure encryption before creating the repository.</p>
+</div>
+
+<h3>4. Configure exclusions</h3>
+<p>After the repository is created, you're returned to the main screen. Click <strong>Exclude From Backup</strong> to open the exclusions dialog.</p>
+
+<div class="critical">
+<strong>WARNING:</strong> Pika's <strong>Exclude Folders</strong> and <strong>Exclude Files</strong> options require the path to already exist on disk. If you select a path that does not exist, Pika may default to the parent directory and unintentionally exclude your entire home folder. For safety, use <strong>Exclude Pattern</strong> for any path that might not exist.
+</div>
+
+<p><strong>Step 1: Enable suggested exclusions.</strong> Pika provides checked suggestions for common ephemeral data. I enabled these:</p>
+<ul>
+ <li><strong>Caches</strong> - covers <code>.cache</code> and <code>.thumbnails</code></li>
+ <li><strong>Trash</strong> - covers <code>.local/share/Trash</code></li>
+ <li><strong>Flatpak App Installations</strong> - covers <code>.var/app</code> runtime data (documents and data inside Flatpaks are still backed up)</li>
+ <li><strong>Virtual Machines and Containers</strong> - covers large VM images if present</li>
+</ul>
+
+<p><strong>Step 2: Add custom patterns.</strong> Click <strong>Exclude Pattern</strong> and ensure the type is set to <strong>Unix Filename Pattern</strong> (the default). I added these patterns after noticing they were eating space:</p>
+
+<ul>
+ <li><code>*/node_modules</code> - folders that show up when installing software dependencies</li>
+ <li><code>*/target</code> - build output that appears after compiling software</li>
+ <li><code>*/dist</code> - packaged files created by some applications</li>
+ <li><code>*/build</code> - temporary directories created during installation</li>
+ <li><code>*.log</code> - text files that grow constantly and are not worth backing up</li>
+ <li><code>Downloads/*.iso</code> - operating system installers I can always download again</li>
+ <li><code>Downloads/*.img</code> - disk images I can always download again</li>
+</ul>
+
+<div class="screenshot">
+ <img src="images/4-pika-exclude.webp" alt="Pika Backup exclusion dialog">
+ <p class="caption">Enable suggested exclusions and add custom patterns.</p>
+</div>
+
+<h3>5. Run the first backup and optional scheduling</h3>
+<p>Click <strong>Back Up Now</strong> on the main screen to begin your first backup.</p>
+
+<div class="screenshot">
+ <img src="images/5-pika-progress.webp" alt="Pika Backup during backup">
+ <p class="caption">First backup in progress.</p>
+</div>
+
+<p><strong>Optional:</strong> Click the <strong>Schedule</strong> tab on the main screen to enable automatic daily or weekly backups. Pika uses a background service that runs even when the main window is closed. This step is optional; manual backups are sufficient if you prefer to control when they run.</p>
+
+<div class="screenshot">
+ <img src="images/6-pika-schedule.webp" alt="Pika Backup schedule tab">
+ <p class="caption">Optional: enable automatic scheduled backups from the Schedule tab.</p>
+</div>
+
+<h3>6. Verify the archive</h3>
+<p>Click <strong>the Archives</strong> tab on the main screen. You should see your first archive listed with a timestamp and size. Click it to browse the contents and confirm your important directories are present. Optionally, perform a Data Integrity Check.</p>
+
+<div class="screenshot">
+ <img src="images/7-pika-archives.webp" alt="Pika Backup archives">
+ <p class="caption">Verify the completed archive in the Archives view.</p>
+</div>
+<h3>Command-line alternative</h3>
+<p>If you prefer not to use a GUI, the underlying Borg repository created by Pika is standard and can be manipulated from the terminal. First, install borgbackup on the host system:</p>
+<pre><code>rpm-ostree install borgbackup
+# Reboot to activate the new deployment
+systemctl reboot</code></pre>
+
+<p>Then use borg commands against the repository Pika created. The repository path matches the folder you selected during setup, and archive names use timestamps:</p>
+<pre><code># List archives in the Pika-created repository
+borg list /run/media/$(/usr/bin/whoami)/backup-disk/YOUR-REPO-FOLDER/YOUR-REPO-NAME
+
+# Extract a specific archive (replace with actual timestamp from borg list output)
+borg extract /run/media/$(/usr/bin/whoami)/backup-disk/YOUR-REPO-FOLDER/YOUR-REPO-NAME::2026-05-03-12-00-00</code></pre>
+
+<div class="note">
+<strong>Note:</strong> Pika bundles its own borg binary inside the Flatpak sandbox. However, that binary isn't accessible from the host terminal. Therefore, you must install borgbackup separately to use these commands. <code>/run/media/$(/usr/bin/whoami)/backup-disk/</code> is a placeholder for my external drive mount point; my actual mount point is <code>2TB</code>, as can be seen in Phase 2, Step 2's screenshot. Replace <code>backup-disk</code> with your actual backup location, whether that's an external drive or a folder on your host disk. Replace <code>YOUR-REPO-FOLDER</code> with your parent directory (mine was <code>SB-Backup</code>) and <code>YOUR-REPO-NAME</code> with your repository name (mine was <code>backup-legion-x144k</code>).
+</div>
+
+<div class="note">
+<strong>Note:</strong> Keep borgbackup installed if you intend to follow Phases 3 and 4, which use borg commands for verification and disaster recovery. Only remove it with <code>rpm-ostree uninstall borgbackup</code> if you are certain you will rely exclusively on Pika's GUI for all backup operations and will not use the command-line procedures elsewhere in this guide.
+</div>
+
+<h2 class="phase">Phase 3: Verification</h2>
+
+<div class="critical">
+<strong>CRITICAL:</strong> A backup you've never tested is a false promise. You must verify that captured state is complete and restorable.
+</div>
+
+<h3>1. Verify package list completeness</h3>
+<pre><code># Check that the package list is non-empty and contains recognizable names
+/usr/bin/wc -l /var/home/$(/usr/bin/whoami)/secureblue-backup/packages/layered-packages.txt
+/usr/bin/head -n 10 /var/home/$(/usr/bin/whoami)/secureblue-backup/packages/layered-packages.txt</code></pre>
+
+<h3>2. Verify archive integrity</h3>
+<pre><code># Test the tar archives
+run0 /usr/bin/tar tzf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/etc-backup.tar.gz > /dev/null && /usr/bin/echo "etc-backup.tar.gz: OK"
+run0 /usr/bin/tar tzf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/var-selective.tar.gz > /dev/null && /usr/bin/echo "var-selective.tar.gz: OK"</code></pre>
+
+<h3>3. Verify borg archive</h3>
+
+<div class="note">
+<strong>Note:</strong> <code>/run/media/$(/usr/bin/whoami)/backup-disk/</code> is a placeholder; my actual mount point is <code>2TB</code>, as can be seen in Phase 2, Step 2's screenshot. Replace <code>backup-disk</code> with your actual backup location, whether that's an external drive or a folder on your host disk. See the Phase 2 command-line alternative for full placeholder explanations. These verification steps can also be done through Pika's GUI. Click the <strong>Archives</strong> tab to browse archive contents and confirm your files are present. The command-line procedures below are provided for users who prefer terminal verification or need to script integrity checks.
+</div>
+
+<pre><code># List archives in the repository
+borg list /run/media/$(/usr/bin/whoami)/backup-disk/YOUR-REPO-FOLDER/YOUR-REPO-NAME | /usr/bin/head -n 20
+
+# Run borg check on the repository
+borg check /run/media/$(/usr/bin/whoami)/backup-disk/YOUR-REPO-FOLDER/YOUR-REPO-NAME</code></pre>
+
+<h3>4. Document your restore procedure</h3>
+<pre><code># Write a restore checklist while the setup is fresh in your memory
+/usr/bin/cat > /var/home/$(/usr/bin/whoami)/secureblue-backup/RESTORE-CHECKLIST.md &lt;&lt; 'EOF'
+# Restore Checklist for secureblue-backup
+
+## 1. Rebase to secureblue
+rpm-ostree rebase ostree-unverified-registry:ghcr.io/secureblue/silverblue-main-hardened:latest 2>/dev/null
+systemctl reboot
+
+## 2. Reinstall layered packages
+rpm-ostree install $(/usr/bin/paste -sd' ' /var/home/$(/usr/bin/whoami)/secureblue-backup/packages/layered-packages.txt)
+systemctl reboot
+
+## 3. Restore /etc overrides
+run0 /usr/bin/tar xzpf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/etc-backup.tar.gz -C /
+
+## 4. Restore /var state
+run0 /usr/bin/tar xzpf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/var-selective.tar.gz -C /
+
+## 5. Restore user data
+borg extract /run/media/$(/usr/bin/whoami)/backup-disk/YOUR-REPO-FOLDER/YOUR-REPO-NAME::YYYY-MM-DD-HH-MM-SS
+
+## 6. Reboot and verify
+systemctl reboot
+EOF</code></pre>
+
+<h2 class="phase">Phase 4: Disaster Recovery</h2>
+
+<p>This is the full procedure for rebuilding from bare metal or a wiped disk. It assumes you've the captured state from Phases 1-3.</p>
+
+<h3>1. Install secureblue base</h3>
+<pre><code># From a Fedora live USB or recovery environment
+# Rebase to the same image reference captured in Phase 1
+rpm-ostree rebase ostree-unverified-registry:ghcr.io/secureblue/silverblue-main-hardened:latest 2>/dev/null
+systemctl reboot</code></pre>
+
+<div class="note">
+<strong>Note:</strong> Use the exact image reference from <code>/var/home/$(/usr/bin/whoami)/secureblue-backup/deployments/current-image-ref.txt</code> if you want the same version. Using <code>:latest</code> gets you the newest build, which may differ from your captured state.
+</div>
+
+<h3>2. Reinstall layered packages</h3>
+<pre><code># After reboot into the new base, reinstall all layered packages
+# Use the reinstall script captured in Phase 1
+run0 /bin/bash /var/home/$(/usr/bin/whoami)/secureblue-backup/packages/reinstall-command.sh
+
+# Reboot again to activate the new deployment with layered packages
+systemctl reboot</code></pre>
+
+<h3>3. Restore system configuration</h3>
+<pre><code># Restore /etc overrides. Be selective: don't overwrite machine-id or hostname on new hardware.
+run0 /usr/bin/tar xzpf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/etc-backup.tar.gz -C /
+
+# Restore /var state
+run0 /usr/bin/tar xzpf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/var-selective.tar.gz -C /
+
+# Restore user systemd units
+/usr/bin/mkdir -p ~/.config/systemd/user
+/usr/bin/cp /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/user-systemd/* ~/.config/systemd/user/ 2>/dev/null || true</code></pre>
+
+<h3>4. Restore user data</h3>
+
+<div class="note">
+<strong>Note:</strong> <code>/run/media/$(/usr/bin/whoami)/backup-disk/</code> is a placeholder for my external drive mount point; my actual mount point is <code>2TB</code>, as can be seen in Phase 2, Step 2's screenshot. Replace <code>backup-disk</code> with your actual backup location, whether that's an external drive or a folder on your host disk. See the Phase 2 command-line alternative for full placeholder explanations. You can also restore through Pika's GUI.
+</div>
+
+<pre><code># Extract from borg backup
+borg extract /run/media/$(/usr/bin/whoami)/backup-disk/YOUR-REPO-FOLDER/YOUR-REPO-NAME::YYYY-MM-DD-HH-MM-SS</code></pre>
+
+<h3>5. Validate the restored system</h3>
+<pre><code># Verify layered packages are present
+rpm-ostree status 2>/dev/null
+
+# Verify /etc drift is restored
+run0 /usr/bin/diff -qr /usr/etc /etc 2>/dev/null | /usr/bin/wc -l
+
+# Verify services start correctly
+run0 /usr/bin/systemctl --failed --no-pager
+
+# Verify user data is present (check your own important directories)
+/usr/bin/ls -la ~ | /usr/bin/head -n 10</code></pre>
+
+<h2 class="phase">Phase 5: Automation</h2>
+
+<div class="note">
+<strong>Note:</strong> This is separate from Pika's scheduled backups in Phase 2. Pika handles your personal files; this timer captures system state that Pika cannot reach inside its sandbox.
+</div>
+
+<p>Manual backups are forgotten backups. These timers automate the capture of system state.</p>
+
+<h3>1. Create the state capture script</h3>
+<pre><code>run0 /usr/bin/tee /usr/local/bin/secureblue-state-capture &lt;&lt; 'EOF'
+#!/bin/bash
+set -uo pipefail
+
+BACKUP_BASE="/var/home/$(/usr/bin/whoami)/secureblue-backup"
+/usr/bin/mkdir -p "${BACKUP_BASE}/deployments" "${BACKUP_BASE}/packages"
+
+# Capture current deployment state
+rpm-ostree status --json 2>/dev/null > "${BACKUP_BASE}/deployments/rpm-ostree-status.json" || /usr/bin/echo "Warning: failed to capture deployment status" >&2
+rpm-ostree status 2>/dev/null | /usr/bin/grep -o 'ostree-[^[:space:]]*' | /usr/bin/head -n 1 > "${BACKUP_BASE}/deployments/current-image-ref.txt" || /usr/bin/echo "Warning: failed to capture image reference" >&2
+
+# Capture layered packages
+rpm-ostree status --booted 2>/dev/null | /usr/bin/grep "LayeredPackages:" | /usr/bin/sed 's/.*LayeredPackages: //' | /usr/bin/tr ' ' '\n' > "${BACKUP_BASE}/packages/layered-packages.txt" || /usr/bin/echo "Warning: failed to capture layered packages" >&2
+/usr/bin/echo "rpm-ostree install $(/usr/bin/paste -sd' ' "${BACKUP_BASE}/packages/layered-packages.txt")" > "${BACKUP_BASE}/packages/reinstall-command.sh"
+/usr/bin/chmod +x "${BACKUP_BASE}/packages/reinstall-command.sh"
+
+# Capture /etc (lightweight: only if changed since last capture)
+/usr/bin/tar czf "${BACKUP_BASE}/configs/etc-backup-$(/bin/date +%Y%m%d).tar.gz" /etc 2>/dev/null || /usr/bin/echo "Warning: failed to capture /etc" >&2
+/usr/bin/chown $(/usr/bin/whoami):$(/usr/bin/whoami) "${BACKUP_BASE}/configs/etc-backup-$(/bin/date +%Y%m%d).tar.gz" 2>/dev/null || true
+
+/usr/bin/echo "State captured at $(/bin/date)"
+EOF
+run0 /usr/bin/chmod +x /usr/local/bin/secureblue-state-capture</code></pre>
+
+<h3>2. Create the systemd timer</h3>
+<pre><code>run0 /usr/bin/tee /etc/systemd/system/secureblue-state-capture.service &lt;&lt; 'EOF'
+[Unit]
+Description=Capture secureblue system state
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/secureblue-state-capture
+StandardOutput=journal
+EOF
+
+run0 /usr/bin/tee /etc/systemd/system/secureblue-state-capture.timer &lt;&lt; 'EOF'
+[Unit]
+Description=Weekly secureblue state capture
+
+[Timer]
+OnCalendar=weekly
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+run0 /usr/bin/systemctl daemon-reload
+run0 /usr/bin/systemctl enable --now secureblue-state-capture.timer</code></pre>
+
+<h2 class="phase">Troubleshooting</h2>
+
+<p>These are issues you may encounter while implementing this strategy. The fix patterns should transfer even if your exact error differs.</p>
+
+<h3>Restored /etc files disappear after rebase</h3>
+<div class="symptom"><strong>Symptom:</strong> You restored /etc from backup, but after <code>rpm-ostree rebase</code> and reboot, some files are missing or reverted.</div>
+<div class="cause"><strong>Cause:</strong> rpm-ostree performs a three-way merge of /etc during deployment switches. Files that existed in the old base but not in the new base may be dropped. Files that are "unmanaged" (not tracked by any base image file) may be preserved but marked as drift.</div>
+<div class="fix"><strong>Fix:</strong> After rebase and before restoring your backup, allow the system to boot once to establish the new base's /etc. Then restore your overrides on top. For critical files, use <code>ostree admin config-diff</code> to inspect what the system considers drift.</div>
+
+<h3>Layered packages fail to reinstall</h3>
+<div class="symptom"><strong>Symptom:</strong> <code>rpm-ostree install</code> fails with "package not found" or dependency conflicts.</div>
+<div class="cause"><strong>Cause:</strong> The package list was captured from a different Fedora release or secureblue image version. Repositories change; packages are renamed or removed.</div>
+<div class="fix"><strong>Fix:</strong> The package list is a starting point, not a sacred script. Install packages individually and skip those that no longer exist. Update your <code>layered-packages.txt</code> after each successful rebuild.</div>
+
+<h3>/var restore breaks services</h3>
+<div class="symptom"><strong>Symptom:</strong> After restoring /var, services fail to start or containers behave strangely.</div>
+<div class="cause"><strong>Cause:</strong> /var contains ephemeral runtime data, SELinux labels that may not match the new deployment, and absolute paths tied to the old machine-id.</div>
+<div class="fix"><strong>Fix:</strong> Be selective with /var. Never restore /var/lib/rpm-ostree, /var/tmp, or /var/run. For container storage, consider exporting and re-importing images rather than copying /var/lib/containers wholesale.</div>
+
+<h3>Borg repository on external drive is unreadable after rebase</h3>
+<div class="symptom"><strong>Symptom:</strong> The external drive mounts with different permissions, or borg reports repository corruption.</div>
+<div class="cause"><strong>Cause:</strong> Rebase changes your user UID or SELinux contexts. The drive may also mount under a different path.</div>
+<div class="fix"><strong>Fix:</strong> Mount the drive and verify ownership: <code>ls -la /run/media/$USER</code>. If needed, relabel: <code>restorecon -R /run/media/$USER/backup-disk</code>. For borg specifically, ensure the repository directory is readable by your user.</div>
+
+<h2 class="phase">Closing thoughts</h2>
+
+<p>I built this guide because I needed it myself. Once I had layered packages, modified configs, and data scattered across /home, /etc, and /var, I realized I had no clear record of what I had changed or how to rebuild it. Snapshots help with daily mistakes, but they do not survive a dead disk. I wanted something I could hand to my future self after a hardware failure and say: follow this, and you'll be back to normal.</p>
+
+<p>If you followed along, you now have the same thing: Pika handling your files, a captured package list, archived system configs, and a written restore procedure while it's still fresh in your mind. That last part matters more than the tools. A backup plan you've never tested is a wish, not a plan. A restore procedure you wrote down while calm is a lifeline when you are not.</p>
+
+<p>Best of luck. Hope you never need it.</p>
+
+</div>
+</body>
+</html>
