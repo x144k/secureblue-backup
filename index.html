@@ -49,7 +49,7 @@
   border-left: 2px solid var(--accent);
   padding-left: .8rem;
  }
-
+  
  h2.topic {
   color: var(--accent);
  }
@@ -570,8 +570,11 @@ run0 /bin/bash /var/home/$(/usr/bin/whoami)/secureblue-backup/packages/reinstall
 systemctl reboot</code></pre>
 
 <h3>3. Restore system configuration</h3>
-<pre><code># Restore /etc overrides. Be selective: don't overwrite machine-id or hostname on new hardware.
-run0 /usr/bin/tar xzpf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/etc-backup.tar.gz -C /
+<pre><code># Verify the archive doesn't contain hardware-specific files before extracting
+run0 /usr/bin/tar tzf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/etc-backup.tar.gz | /usr/bin/grep -E "machine-id|hostname|fstab" || /usr/bin/echo "Verification passed: no hardware-specific files found"
+
+# Restore /etc overrides. The --exclude flags are redundant with Phase 1 exclusions, but safe as belt-and-suspenders on new hardware.
+run0 /usr/bin/tar xzpf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/etc-backup.tar.gz -C / --exclude=etc/machine-id --exclude=etc/hostname --exclude=etc/fstab
 
 # Restore /var state
 run0 /usr/bin/tar xzpf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/var-selective.tar.gz -C /
