@@ -249,7 +249,7 @@
 
 <h2 class="topic">Btrfs snapshots: useful, but not sufficient</h2>
 
-<p>Fedora Silverblue and secureblue use Btrfs for <code>/sysroot</code>. The <code>rpm-ostree</code> tooling already creates deployment snapshots automatically every time you install, update, or rebase. You can roll back to a previous deployment from the bootloader menu if a new update breaks something. This is powerful local recovery.</p>
+<p>Fedora's atomic desktops and secureblue use Btrfs for <code>/sysroot</code>. The <code>rpm-ostree</code> tooling already creates deployment snapshots automatically every time you install, update, or rebase. You can roll back to a previous deployment from the bootloader menu if a new update breaks something. This is powerful local recovery.</p>
 
 <p>However, snapshots aren't backups. They live on the same physical disk as the live system. Drive failure, filesystem corruption, or theft destroys both the live data and the snapshot. They also don't capture your external user data in <code>/home</code> unless that directory is on the same Btrfs volume, which isn't guaranteed.</p>
 
