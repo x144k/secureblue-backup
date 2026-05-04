@@ -12,7 +12,7 @@ This repository provides instructions to implement a complete backup strategy fo
 
 ## My setup
 
-I built this on my daily driver running secureblue on a Lenovo Legion 7 Pro (16IRX8H). Clean install, no extra overlays beyond what the guide layers.
+I built this on my daily driver running secureblue on a Lenovo Legion 7 Pro (16IRX8H). Clean install with borgbackup, fastfetch, ivpn, and keepassxc layered for daily use.
 
 - **OS:** secureblue (Fedora Silverblue/Kinoite base)
 - **Hardware:** Intel i9-13900HX; NVIDIA GeForce RTX 4090
