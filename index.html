@@ -49,7 +49,7 @@
   border-left: 2px solid var(--accent);
   padding-left: .8rem;
  }
-  
+
  h2.topic {
   color: var(--accent);
  }
@@ -170,6 +170,7 @@
  li { margin: .35rem 0; }
 </style>
 <base target="_blank">
+<base target="_blank">
 </head>
 <body>
 <div class="container">
@@ -202,14 +203,11 @@
  </div>
 </div>
 
-<h2 class="topic">What traditional approaches miss</h2>
-<p>This is what standard backup strategies get wrong on rpm-ostree. Your mileage may vary.</p>
-<ul>
- <li><strong>Rsync or Borg to /usr:</strong> The base image in /usr is already reproducible via <code>rpm-ostree rebase</code>. Backing it up duplicates gigabytes of data that can be fetched from the upstream repository. The meaningful state lives in the overlays, not the base.</li>
- <li><strong>File-level backup of /etc without metadata:</strong> rpm-ostree tracks /etc as a three-way merge between the base image, previous deployment, and current changes. Restoring plain files without understanding this merge model creates unmanaged drift that survives across rebases.</li>
- <li><strong>Ignoring /var:</strong> Service state, container storage, and cached data live in /var. A home-directory-only backup loses this entirely. Some of it should be preserved; some is ephemeral and should be excluded by design.</li>
- <li><strong>Forgetting layered packages:</strong> <code>rpm-ostree install</code> places packages in a separate layer. Rebuilding from a fresh rebase without recording these packages leaves you with a broken environment. The package list is part of the system state.</li>
-</ul>
+<h2 class="topic">Prerequisites</h2>
+<p>This guide assumes you are running secureblue (or another rpm-ostree system) and are comfortable with terminal commands. Three axioms govern atomic backup strategy. First, <code>/usr</code> is a read-only OSTree checkout - managed base state that is never backed up; it is rebased. Second, Btrfs deployment snapshots are local-only recovery tools; they die with the disk and do not constitute backups. Third, a backup plan is only valid after it has been tested end-to-end. If you do not understand why <code>/usr</code> is excluded or why snapshots are insufficient, review the <a href="https://coreos.github.io/rpm-ostree/administrator-handbook/">rpm-ostree administrator handbook</a> before proceeding.</p>
+
+<h2 class="topic">What this guide captures</h2>
+<p>Atomic systems separate managed base state (<code>/usr</code>) from mutable overlays (<code>/etc</code>, <code>/var</code>, layered packages, user data). A valid backup strategy must capture the deltas, not the baseline. This guide documents those deltas and their restoration order.</p>
 
 <h2 class="topic">What it does</h2>
 <p>The strategy consists of five components working together:</p>
@@ -222,8 +220,6 @@
 </ul>
 
 <h2 class="topic">The atomic backup mindset</h2>
-
-<p>Traditional backup wisdom says: image the whole disk, or at least back up <code>/</code> and <code>/home</code>. On an atomic system, this intuition leads you astray. The base operating system isn't your data; it's a managed artifact. Treating it like personal state wastes space, complicates restoration, and obscures what actually matters.</p>
 
 <p>This guide assumes a different mindset: the base image is disposable, the overlays are precious, and the goal is reconstruction, not cloning. You're not preserving a machine; you're preserving the deviation from a known good baseline.</p>
 
@@ -251,9 +247,7 @@
 
 <p>Fedora's atomic desktops and secureblue use Btrfs for <code>/sysroot</code>. The <code>rpm-ostree</code> tooling already creates deployment snapshots automatically every time you install, update, or rebase. You can roll back to a previous deployment from the bootloader menu if a new update breaks something. This is powerful local recovery.</p>
 
-<p>However, snapshots aren't backups. They live on the same physical disk as the live system. Drive failure, filesystem corruption, or theft destroys both the live data and the snapshot. They also don't capture your external user data in <code>/home</code> unless that directory is on the same Btrfs volume, which isn't guaranteed.</p>
-
-<p>Most users new to atomic systems will be told to "just use snapshots." That advice works for recovering from a bad update or a mistaken <code>/etc</code> edit, but it leaves you exposed to catastrophic loss. This guide treats snapshots as the first line of defense for daily mistakes, and off-system backups as the second line for disaster recovery. You should have both.</p>
+<p>This guide treats snapshots as the first line of defense for daily mistakes, and off-system backups as the second line for disaster recovery. You should have both.</p>
 
 <h3>How snapshots fit into this strategy</h3>
 <ul>
@@ -286,9 +280,8 @@ rpm-ostree status --booted 2>/dev/null | grep "LayeredPackages:"</code></pre>
 <pre><code>rpm-ostree status --json 2>/dev/null > ~/secureblue-backup-deployments.json</code></pre>
 
 <h3>3. Inspect /etc drift</h3>
-<pre><code># Show files in /etc that differ from the base image
-# This requires a previous deployment reference; compare current /etc to /usr/etc
-run0 /usr/bin/diff -qr /usr/etc /etc 2>/dev/null | head -n 50</code></pre>
+<pre><code># Show files in /etc that differ from the base image (canonical rpm-ostree view)
+run0 /usr/bin/ostree admin config-diff 2>/dev/null | /usr/bin/head -n 50</code></pre>
 
 <div class="note">
 <strong>Skip:</strong> backup copies (trailing <code>-</code>), lock files (<code>.LOCK</code>), stamp files, identity files (<code>passwd</code>, <code>group</code>, <code>machine-id</code>, <code>adjtime</code>, <code>hostname</code>, <code>localtime</code>), auto-generated state (<code>fstab</code>, <code>cups/subscriptions.conf*</code>, <code>dconf/db/distro</code>, <code>nvme/hostid</code>, <code>nvme/hostnqn</code>, <code>selinux/*</code>), and ephemeral flags (<code>.pwd.lock</code>, <code>.rpm-ostree-shadow-mode-fixed2.stamp</code>).<br><br>
@@ -301,7 +294,15 @@ run0 /usr/bin/du -sh /var/lib/* 2>/dev/null | sort -rh | head -n 20</code></pre>
 
 <div class="note">
 <strong>Preserve:</strong> <code>/var/lib/NetworkManager</code> (connection profiles and keys), <code>/var/lib/bluetooth</code> (pairing keys), <code>/var/lib/boltd</code> (Thunderbolt authorization), and <code>/var/lib/containers</code> (Podman images) if you use containers.<br><br>
-<strong>Skip:</strong> <code>/var/lib/rpm-ostree</code> (deployment metadata tied to this disk), auto-generated service state (<code>fwupd</code>, <code>chrony</code>, <code>alsa</code>, <code>upower</code>), ephemeral system state (<code>systemd</code>, <code>AccountsService</code>, <code>lastlog</code>), and metrics (<code>rpm-ostree-countme</code>, <code>secureblue</code>).
+<strong>Skip:</strong> <code>/var/lib/rpm-ostree</code> (deployment metadata tied to this disk), <code>/var/lib/systemd</code> (machine-specific random seeds and runtime tracking), auto-generated service state (<code>fwupd</code>, <code>chrony</code>, <code>alsa</code>, <code>upower</code>), ephemeral system state (<code>AccountsService</code>, <code>lastlog</code>), and metrics (<code>rpm-ostree-countme</code>, <code>secureblue</code>).
+</div>
+
+<div class="note">
+<strong>Warning:</strong> <code>/var/lib/containers</code> (Podman) and <code>/var/lib/libvirt</code> can grow to tens or hundreds of gigabytes. A <code>tar</code> archive of this data may exceed your backup disk capacity. Consider exporting container images with <code>podman save</code> or backing up VM disks individually rather than archiving the entire <code>/var/lib</code> directory.
+</div>
+
+<div class="note">
+<strong>Note:</strong> <code>/var/lib/bluetooth</code> contains pairing keys tied to your specific Bluetooth controller MAC address. <code>/var/lib/boltd</code> contains Thunderbolt authorizations tied to specific devices and ports. Restoring these to different hardware is usually pointless. Only preserve them when restoring to the same machine.
 </div>
 
 <h2 class="phase">Phase 1: Capture System State</h2>
@@ -323,9 +324,8 @@ rpm-ostree status --json 2>/dev/null > /var/home/$(/usr/bin/whoami)/secureblue-b
 rpm-ostree status --booted 2>/dev/null | /usr/bin/grep -o 'ostree-[^[:space:]]*' | /usr/bin/head -n 1 > /var/home/$(/usr/bin/whoami)/secureblue-backup/deployments/current-image-ref.txt</code></pre>
 
 <h3>3. Export layered package list</h3>
-<pre><code># Extract layered packages from the booted deployment
-# rpm-ostree db list outputs ALL packages (base + layered), so we use status instead
-rpm-ostree status --booted 2>/dev/null | /usr/bin/grep "LayeredPackages:" | /usr/bin/sed 's/.*LayeredPackages: //' | /usr/bin/tr ' ' '\n' > /var/home/$(/usr/bin/whoami)/secureblue-backup/packages/layered-packages.txt
+<pre><code># Extract layered packages from the booted deployment via JSON (robust against formatting changes)
+/usr/bin/python3 -c "import sys,json; d=json.load(sys.stdin); [print(p) for dep in d.get('deployments',[]) if dep.get('booted') for p in dep.get('requested-packages',[])]" < <(rpm-ostree status --json) > /var/home/$(/usr/bin/whoami)/secureblue-backup/packages/layered-packages.txt
 
 # Also capture the exact rpm-ostree install command for documentation
 /usr/bin/echo "rpm-ostree install $(/usr/bin/paste -sd' ' /var/home/$(/usr/bin/whoami)/secureblue-backup/packages/layered-packages.txt)" > /var/home/$(/usr/bin/whoami)/secureblue-backup/packages/reinstall-command.sh
@@ -334,14 +334,14 @@ rpm-ostree status --booted 2>/dev/null | /usr/bin/grep "LayeredPackages:" | /usr
 <h3>4. Capture /etc overrides</h3>
 <pre><code># Create a tar archive of /etc, preserving permissions and SELinux contexts
 # Exclude ephemeral directories that shouldn't be preserved
-run0 /usr/bin/tar czpf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/etc-backup.tar.gz  --exclude=/etc/resolv.conf  --exclude=/etc/localtime  --exclude=/etc/machine-id  --exclude=/etc/hostname  --exclude=/etc/mtab  /etc</code></pre>
+run0 /usr/bin/tar czpf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/etc-backup.tar.gz  --exclude=/etc/resolv.conf  --exclude=/etc/localtime  --exclude=/etc/machine-id  --exclude=/etc/hostname  --exclude=/etc/mtab  --exclude=/etc/fstab  /etc</code></pre>
 
 <div class="note">
 <strong>Note:</strong> Tar will print "Removing leading '/' from member names." This is harmless. Tar strips the leading slash as a security precaution when archiving absolute paths. Restoration with <code>-C /</code> still places files in the correct location.
 </div>
 
 <div class="note">
-<strong>Note:</strong> The exclusions above are ephemeral or auto-generated. Machine-id and hostname in particular shouldn't be blindly restored to new hardware. If you've installed my <a href="https://github.com/x144k/secureblue-hids">secureblue-hids</a> stack, add <code>--exclude=/etc/audit/rules.d/*</code> to the tar command above. Audit rules in that stack are managed by its own installation procedure; restoring them from a generic /etc backup would either conflict with that managed state or miss dependencies installed by its scripts. If you've applied that stack, reinstall audit rules via the HIDS guide instead.
+<strong>Note:</strong> The exclusions above are ephemeral or auto-generated. Machine-id and hostname in particular shouldn't be blindly restored to new hardware. <code>/etc/fstab</code> on rpm-ostree is typically empty or auto-generated and should not be carried across deployments. If you've installed my <a href="https://github.com/x144k/secureblue-hids">secureblue-hids</a> stack, add <code>--exclude=/etc/audit/rules.d/*</code> to the tar command above. Audit rules in that stack are managed by its own installation procedure; restoring them from a generic /etc backup would either conflict with that managed state or miss dependencies installed by its scripts. If you've applied that stack, reinstall audit rules via the HIDS guide instead.
 </div>
 
 <h3>5. Capture /var persistent state</h3>
@@ -349,18 +349,17 @@ run0 /usr/bin/tar czpf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/et
 # Create a manifest of /var directories you want to preserve
 /usr/bin/cat > /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/var-manifest.txt &lt;&lt; 'EOF'
 # Uncomment the lines below for what you want to preserve:
-# /var/lib/containers     # Podman container images and volumes
+# /var/lib/containers     # Podman container images and volumes (see size warning above)
 # /var/lib/libvirt       # Virtual machine images
-# /var/lib/flatpak       # Flatpak app data (often large; consider selective)
-# /var/lib/systemd       # Persistent systemd state
+# /var/lib/flatpak       # Flatpak system runtimes (not user app data)
 # /var/lib/NetworkManager   # Network connection profiles
 # /var/log/journal       # Persistent journal logs
 # /var/spool          # Mail and cron spools
 EOF</code></pre>
 
 <p>Edit the manifest to match your needs, then archive the selected paths:</p>
-<pre><code># Example: backing up NetworkManager and systemd state only
-run0 /usr/bin/tar czpf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/var-selective.tar.gz  /var/lib/NetworkManager  /var/lib/systemd  /var/spool</code></pre>
+<pre><code># Example: backing up NetworkManager state only
+run0 /usr/bin/tar czpf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/var-selective.tar.gz  /var/lib/NetworkManager  /var/spool</code></pre>
 
 <div class="note">
 <strong>Note:</strong> Tar will print "Removing leading '/' from member names" and "Removing leading '/' from hard link targets." Both are harmless. If you include <code>/var/log/journal</code>, you may also see "file changed as we read it" for active journal files. This is expected; journald is actively writing while tar reads. The archive will still be valid.
@@ -433,6 +432,10 @@ run0 /usr/bin/tar czpf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/va
  <li><strong>Virtual Machines and Containers</strong> - covers large VM images if present</li>
 </ul>
 
+<div class="note">
+<strong>Note:</strong> Pika's suggested exclusion "Flatpak App Installations" refers to application runtime caches, not your personal app data. Your Flatpak app data lives in <code>.var/app</code> inside your home directory. If you exclude <code>.var/app</code>, you will not back up documents, settings, or state stored inside Flatpak applications. The system-wide Flatpak runtime installations in <code>/var/lib/flatpak</code> are handled separately in the system state capture if you choose to back them up.
+</div>
+
 <p><strong>Step 2: Add custom patterns.</strong> Click <strong>Exclude Pattern</strong> and ensure the type is set to <strong>Unix Filename Pattern</strong> (the default). I added these patterns after noticing they were eating space:</p>
 
 <ul>
@@ -482,11 +485,11 @@ systemctl reboot</code></pre>
 <pre><code># List archives in the Pika-created repository
 borg list /run/media/$(/usr/bin/whoami)/backup-disk/YOUR-REPO-FOLDER/YOUR-REPO-NAME
 
-# Extract a specific archive (replace with actual timestamp from borg list output)
-borg extract /run/media/$(/usr/bin/whoami)/backup-disk/YOUR-REPO-FOLDER/YOUR-REPO-NAME::2026-05-03-12-00-00</code></pre>
+# Extract a specific archive (run from your home directory)
+cd ~ && borg extract /run/media/$(/usr/bin/whoami)/backup-disk/YOUR-REPO-FOLDER/YOUR-REPO-NAME::2026-05-03-12-00-00</code></pre>
 
 <div class="note">
-<strong>Note:</strong> Pika bundles its own borg binary inside the Flatpak sandbox. However, that binary isn't accessible from the host terminal. Therefore, you must install borgbackup separately to use these commands. <code>/run/media/$(/usr/bin/whoami)/backup-disk/</code> is a placeholder for my external drive mount point; my actual mount point is <code>2TB</code>, as can be seen in Phase 2, Step 2's screenshot. Replace <code>backup-disk</code> with your actual backup location, whether that's an external drive or a folder on your host disk. Replace <code>YOUR-REPO-FOLDER</code> with your parent directory (mine was <code>SB-Backup</code>) and <code>YOUR-REPO-NAME</code> with your repository name (mine was <code>backup-legion-x144k</code>).
+<strong>Note:</strong> Pika bundles its own borg binary inside the Flatpak sandbox. However, that binary isn't accessible from the host terminal. Therefore, you must install borgbackup separately to use these commands. <code>/run/media/$(/usr/bin/whoami)/backup-disk/</code> is a placeholder for my external drive mount point; my actual mount point is <code>2TB</code>, as can be seen in Phase 2, Step 2's screenshot. Replace <code>backup-disk</code> with your actual backup location, whether that's an external drive or a folder on your host disk. Replace <code>YOUR-REPO-FOLDER</code> with your parent directory (mine was <code>SB-Backup</code>) and <code>YOUR-REPO-NAME</code> with your repository name (mine was <code>backup-legion-x144k</code>). Borg extract restores paths relative to the current working directory, so always run it from the directory you want to restore into (your home directory for Pika archives).
 </div>
 
 <div class="note">
@@ -527,6 +530,7 @@ borg check /run/media/$(/usr/bin/whoami)/backup-disk/YOUR-REPO-FOLDER/YOUR-REPO-
 # Restore Checklist for secureblue-backup
 
 ## 1. Rebase to secureblue
+# Example only: use the exact image reference from current-image-ref.txt
 rpm-ostree rebase ostree-unverified-registry:ghcr.io/secureblue/silverblue-main-hardened:latest 2>/dev/null
 systemctl reboot
 
@@ -541,7 +545,8 @@ run0 /usr/bin/tar xzpf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/et
 run0 /usr/bin/tar xzpf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/var-selective.tar.gz -C /
 
 ## 5. Restore user data
-borg extract /run/media/$(/usr/bin/whoami)/backup-disk/YOUR-REPO-FOLDER/YOUR-REPO-NAME::YYYY-MM-DD-HH-MM-SS
+# Run from your home directory
+cd ~ && borg extract /run/media/$(/usr/bin/whoami)/backup-disk/YOUR-REPO-FOLDER/YOUR-REPO-NAME::YYYY-MM-DD-HH-MM-SS
 
 ## 6. Reboot and verify
 systemctl reboot
@@ -552,13 +557,12 @@ EOF</code></pre>
 <p>This is the full procedure for rebuilding from bare metal or a wiped disk. It assumes you've the captured state from Phases 1-3.</p>
 
 <h3>1. Install secureblue base</h3>
-<pre><code># From a Fedora live USB or recovery environment
-# Rebase to the same image reference captured in Phase 1
+<pre><code># Example: rebase to secureblue (adjust image variant to match your installation)
 rpm-ostree rebase ostree-unverified-registry:ghcr.io/secureblue/silverblue-main-hardened:latest 2>/dev/null
 systemctl reboot</code></pre>
 
 <div class="note">
-<strong>Note:</strong> Use the exact image reference from <code>/var/home/$(/usr/bin/whoami)/secureblue-backup/deployments/current-image-ref.txt</code> if you want the same version. Using <code>:latest</code> gets you the newest build, which may differ from your captured state.
+<strong>Note:</strong> Use the exact image reference from <code>/var/home/$(/usr/bin/whoami)/secureblue-backup/deployments/current-image-ref.txt</code> if you want the same version. Using <code>:latest</code> gets you the newest build, which may differ from your captured state. The command above uses <code>ostree-unverified-registry</code> as a disaster-recovery shortcut. For routine rebases, secureblue recommends verified pulls via cosign. See the <a href="https://secureblue.dev/">secureblue documentation</a> for the current verified rebase procedure.
 </div>
 
 <h3>2. Reinstall layered packages</h3>
@@ -571,17 +575,24 @@ systemctl reboot</code></pre>
 
 <h3>3. Restore system configuration</h3>
 <pre><code># Verify the archive doesn't contain hardware-specific files before extracting
-run0 /usr/bin/tar tzf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/etc-backup.tar.gz | /usr/bin/grep -E "machine-id|hostname|fstab" || /usr/bin/echo "Verification passed: no hardware-specific files found"
+run0 /usr/bin/tar tzf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/etc-backup.tar.gz | /usr/bin/grep -E "machine-id|hostname" || /usr/bin/echo "Verification passed: no hardware-specific files found"
 
 # Restore /etc overrides. The --exclude flags are redundant with Phase 1 exclusions, but safe as belt-and-suspenders on new hardware.
-run0 /usr/bin/tar xzpf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/etc-backup.tar.gz -C / --exclude=etc/machine-id --exclude=etc/hostname --exclude=etc/fstab
+run0 /usr/bin/tar xzpf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/etc-backup.tar.gz -C / --exclude=etc/machine-id --exclude=etc/hostname
 
 # Restore /var state
 run0 /usr/bin/tar xzpf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/var-selective.tar.gz -C /
 
+# Fix SELinux contexts after restoring system state
+run0 /sbin/restorecon -R /etc /var
+
 # Restore user systemd units
 /usr/bin/mkdir -p ~/.config/systemd/user
 /usr/bin/cp /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/user-systemd/* ~/.config/systemd/user/ 2>/dev/null || true</code></pre>
+
+<div class="note">
+<strong>Note:</strong> <code>/var/lib/bluetooth</code> and <code>/var/lib/boltd</code> are hardware-specific. If you are restoring to new hardware, omit those directories from the <code>/var</code> archive or delete them after restoration.
+</div>
 
 <h3>4. Restore user data</h3>
 
@@ -589,15 +600,18 @@ run0 /usr/bin/tar xzpf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/va
 <strong>Note:</strong> <code>/run/media/$(/usr/bin/whoami)/backup-disk/</code> is a placeholder for my external drive mount point; my actual mount point is <code>2TB</code>, as can be seen in Phase 2, Step 2's screenshot. Replace <code>backup-disk</code> with your actual backup location, whether that's an external drive or a folder on your host disk. See the Phase 2 command-line alternative for full placeholder explanations. You can also restore through Pika's GUI.
 </div>
 
-<pre><code># Extract from borg backup
-borg extract /run/media/$(/usr/bin/whoami)/backup-disk/YOUR-REPO-FOLDER/YOUR-REPO-NAME::YYYY-MM-DD-HH-MM-SS</code></pre>
+<pre><code># Extract from borg backup (run from your home directory)
+cd ~ && borg extract /run/media/$(/usr/bin/whoami)/backup-disk/YOUR-REPO-FOLDER/YOUR-REPO-NAME::YYYY-MM-DD-HH-MM-SS</code></pre>
 
 <h3>5. Validate the restored system</h3>
-<pre><code># Verify layered packages are present
-rpm-ostree status 2>/dev/null
+<pre><code># Verify deployment and layered packages
+run0 /usr/bin/rpm-ostree status
 
-# Verify /etc drift is restored
-run0 /usr/bin/diff -qr /usr/etc /etc 2>/dev/null | /usr/bin/wc -l
+# Verify /etc drift is restored (count should be non-zero and expected)
+run0 /usr/bin/ostree admin config-diff | /usr/bin/wc -l
+
+# Ensure SELinux contexts match the new deployment
+run0 /sbin/restorecon -R /etc /var
 
 # Verify services start correctly
 run0 /usr/bin/systemctl --failed --no-pager
@@ -613,43 +627,62 @@ run0 /usr/bin/systemctl --failed --no-pager
 
 <p>Manual backups are forgotten backups. These timers automate the capture of system state.</p>
 
-<h3>1. Create the state capture script</h3>
-<pre><code>run0 /usr/bin/tee /usr/local/bin/secureblue-state-capture &lt;&lt; 'EOF'
+<h3>1. Enable lingering for your user</h3>
+<p>User timers require your user session to support background operation even when you are not logged in.</p>
+<pre><code>/usr/bin/loginctl enable-linger x144k</code></pre>
+<div class="note">
+<strong>Note:</strong> Change <code>x144k</code> to your username. All remaining commands in this phase hardcode <code>x144k</code>; replace every instance with your username before executing them.
+</div>
+
+<h3>2. Create the state capture script</h3>
+<pre><code># Create the local bin directory if needed
+/usr/bin/mkdir -p /var/home/x144k/.local/bin
+
+/usr/bin/cat > /var/home/x144k/.local/bin/secureblue-state-capture &lt;&lt; 'EOF'
 #!/bin/bash
 set -uo pipefail
 
-BACKUP_BASE="/var/home/$(/usr/bin/whoami)/secureblue-backup"
-/usr/bin/mkdir -p "${BACKUP_BASE}/deployments" "${BACKUP_BASE}/packages"
+# Change x144k to your actual username
+BACKUP_BASE="/var/home/x144k/secureblue-backup"
+/usr/bin/mkdir -p "${BACKUP_BASE}/deployments" "${BACKUP_BASE}/packages" "${BACKUP_BASE}/system-borg"
+
+# Initialize borg repo for system state if it doesn't exist (user-owned)
+if [ ! -f "${BACKUP_BASE}/system-borg/config" ]; then
+    /usr/bin/borg init --encryption=none "${BACKUP_BASE}/system-borg"
+fi
 
 # Capture current deployment state
-rpm-ostree status --json 2>/dev/null > "${BACKUP_BASE}/deployments/rpm-ostree-status.json" || /usr/bin/echo "Warning: failed to capture deployment status" >&2
-rpm-ostree status 2>/dev/null | /usr/bin/grep -o 'ostree-[^[:space:]]*' | /usr/bin/head -n 1 > "${BACKUP_BASE}/deployments/current-image-ref.txt" || /usr/bin/echo "Warning: failed to capture image reference" >&2
+rpm-ostree status --json > "${BACKUP_BASE}/deployments/rpm-ostree-status.json" || /usr/bin/echo "Warning: failed to capture deployment status" >&2
+rpm-ostree status | /usr/bin/grep -o 'ostree-[^[:space:]]*' | /usr/bin/head -n 1 > "${BACKUP_BASE}/deployments/current-image-ref.txt" || /usr/bin/echo "Warning: failed to capture image reference" >&2
 
-# Capture layered packages
-rpm-ostree status --booted 2>/dev/null | /usr/bin/grep "LayeredPackages:" | /usr/bin/sed 's/.*LayeredPackages: //' | /usr/bin/tr ' ' '\n' > "${BACKUP_BASE}/packages/layered-packages.txt" || /usr/bin/echo "Warning: failed to capture layered packages" >&2
+# Capture layered packages (robust JSON parsing)
+/usr/bin/python3 -c "import sys,json; d=json.load(sys.stdin); [print(p) for dep in d.get('deployments',[]) if dep.get('booted') for p in dep.get('requested-packages',[])]" < <(rpm-ostree status --json) > "${BACKUP_BASE}/packages/layered-packages.txt" || /usr/bin/echo "Warning: failed to capture layered packages" >&2
 /usr/bin/echo "rpm-ostree install $(/usr/bin/paste -sd' ' "${BACKUP_BASE}/packages/layered-packages.txt")" > "${BACKUP_BASE}/packages/reinstall-command.sh"
 /usr/bin/chmod +x "${BACKUP_BASE}/packages/reinstall-command.sh"
 
-# Capture /etc (lightweight: only if changed since last capture)
-/usr/bin/tar czf "${BACKUP_BASE}/configs/etc-backup-$(/bin/date +%Y%m%d).tar.gz" /etc 2>/dev/null || /usr/bin/echo "Warning: failed to capture /etc" >&2
-/usr/bin/chown $(/usr/bin/whoami):$(/usr/bin/whoami) "${BACKUP_BASE}/configs/etc-backup-$(/bin/date +%Y%m%d).tar.gz" 2>/dev/null || true
+# Capture /etc via borg (run as root, then restore ownership so user can manage the repo)
+run0 /usr/bin/borg create --compression lz4 "${BACKUP_BASE}/system-borg::etc-$(/bin/date +%Y%m%d-%H%M%S)" /etc || /usr/bin/echo "Warning: failed to capture /etc" >&2
+run0 /usr/bin/chown -R x144k:x144k "${BACKUP_BASE}/system-borg" 2>/dev/null || true
 
 /usr/bin/echo "State captured at $(/bin/date)"
 EOF
-run0 /usr/bin/chmod +x /usr/local/bin/secureblue-state-capture</code></pre>
+/usr/bin/chmod +x /var/home/x144k/.local/bin/secureblue-state-capture</code></pre>
 
-<h3>2. Create the systemd timer</h3>
-<pre><code>run0 /usr/bin/tee /etc/systemd/system/secureblue-state-capture.service &lt;&lt; 'EOF'
+<h3>3. Create the user systemd timer</h3>
+<pre><code># Create user systemd directory
+/usr/bin/mkdir -p /var/home/x144k/.config/systemd/user
+
+/usr/bin/cat > /var/home/x144k/.config/systemd/user/secureblue-state-capture.service &lt;&lt; 'EOF'
 [Unit]
 Description=Capture secureblue system state
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/secureblue-state-capture
+ExecStart=/var/home/x144k/.local/bin/secureblue-state-capture
 StandardOutput=journal
 EOF
 
-run0 /usr/bin/tee /etc/systemd/system/secureblue-state-capture.timer &lt;&lt; 'EOF'
+/usr/bin/cat > /var/home/x144k/.config/systemd/user/secureblue-state-capture.timer &lt;&lt; 'EOF'
 [Unit]
 Description=Weekly secureblue state capture
 
@@ -661,8 +694,12 @@ Persistent=true
 WantedBy=timers.target
 EOF
 
-run0 /usr/bin/systemctl daemon-reload
-run0 /usr/bin/systemctl enable --now secureblue-state-capture.timer</code></pre>
+/usr/bin/systemctl --user daemon-reload
+/usr/bin/systemctl --user enable --now secureblue-state-capture.timer</code></pre>
+
+<div class="note">
+<strong>Note:</strong> The script hardcodes the username <code>x144k</code>. Change all instances of <code>x144k</code> in the script and service files to your username before running these commands. User timers run under your session and do not require root privileges for scheduling, though the script internally uses <code>run0</code> to back up <code>/etc</code>. To prune old borg archives and prevent unbounded growth, run <code>borg prune --keep-weekly=4 --keep-monthly=3 "${BACKUP_BASE}/system-borg"</code> periodically.
+</div>
 
 <h2 class="phase">Troubleshooting</h2>
 
@@ -681,7 +718,7 @@ run0 /usr/bin/systemctl enable --now secureblue-state-capture.timer</code></pre>
 <h3>/var restore breaks services</h3>
 <div class="symptom"><strong>Symptom:</strong> After restoring /var, services fail to start or containers behave strangely.</div>
 <div class="cause"><strong>Cause:</strong> /var contains ephemeral runtime data, SELinux labels that may not match the new deployment, and absolute paths tied to the old machine-id.</div>
-<div class="fix"><strong>Fix:</strong> Be selective with /var. Never restore /var/lib/rpm-ostree, /var/tmp, or /var/run. For container storage, consider exporting and re-importing images rather than copying /var/lib/containers wholesale.</div>
+<div class="fix"><strong>Fix:</strong> Be selective with /var. Never restore /var/lib/rpm-ostree, /var/tmp, or /var/run. For container storage, consider exporting and re-importing images rather than copying /var/lib/containers wholesale. Always run <code>restorecon -R /var</code> after restoring /var state.</div>
 
 <h3>Borg repository on external drive is unreadable after rebase</h3>
 <div class="symptom"><strong>Symptom:</strong> The external drive mounts with different permissions, or borg reports repository corruption.</div>
