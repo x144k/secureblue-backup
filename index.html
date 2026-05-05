@@ -203,8 +203,14 @@
  </div>
 </div>
 
+<p>Think of the stack as layers of paint. The green base layer (<code>/usr</code>) is factory paint; you never touch it. The blue, purple, orange, and red layers above it are your personal paint - configs, packages, and data. When disaster strikes, we throw away the canvas and repaint the base, then re-apply only your personal layers.</p>
+
 <h2 class="topic">Prerequisites</h2>
 <p>This guide assumes you are running secureblue (or another rpm-ostree system) and are comfortable with terminal commands. Three axioms govern atomic backup strategy. First, <code>/usr</code> is a read-only OSTree checkout - managed base state that is never backed up; it is rebased. Second, Btrfs deployment snapshots are local-only recovery tools; they die with the disk and do not constitute backups. Third, a backup plan is only valid after it has been tested end-to-end. If you do not understand why <code>/usr</code> is excluded or why snapshots are insufficient, review the <a href="https://coreos.github.io/rpm-ostree/administrator-handbook/">rpm-ostree administrator handbook</a> before proceeding.</p>
+
+<div class="note">
+<strong>New to atomic systems?</strong> On a traditional Linux distro, you install packages directly into <code>/usr</code> and they become part of your system forever. On an atomic system, <code>/usr</code> is a read-only snapshot (an <em>OSTree deployment</em>) that is replaced entirely during updates. Your changes - config files, layered packages, service state - live in separate <em>overlay</em> layers on top of that snapshot. This guide backs up those overlays so you can re-apply them to a fresh deployment.
+</div>
 
 <h2 class="topic">What this guide captures</h2>
 <p>Atomic systems separate managed base state (<code>/usr</code>) from mutable overlays (<code>/etc</code>, <code>/var</code>, layered packages, user data). A valid backup strategy must capture the deltas, not the baseline. This guide documents those deltas and their restoration order.</p>
@@ -245,6 +251,8 @@
 
 <h2 class="topic">Btrfs snapshots: useful, but not sufficient</h2>
 
+<p>An rpm-ostree deployment snapshot is a local rollback point stored on your system disk. It lets you undo a bad update from the bootloader, but it cannot survive disk failure.</p>
+
 <p>Fedora's atomic desktops and secureblue use Btrfs for <code>/sysroot</code>. The <code>rpm-ostree</code> tooling already creates deployment snapshots automatically every time you install, update, or rebase. You can roll back to a previous deployment from the bootloader menu if a new update breaks something. This is powerful local recovery.</p>
 
 <p>This guide treats snapshots as the first line of defense for daily mistakes, and off-system backups as the second line for disaster recovery. You should have both.</p>
@@ -280,6 +288,7 @@ rpm-ostree status --booted 2>/dev/null | grep "LayeredPackages:"</code></pre>
 <pre><code>rpm-ostree status --json 2>/dev/null > ~/secureblue-backup-deployments.json</code></pre>
 
 <h3>3. Inspect /etc drift</h3>
+<p><strong>Drift</strong> is any file in <code>/etc</code> that differs from the base image's default. rpm-ostree tracks this automatically. The command below shows your drift using the canonical rpm-ostree view:</p>
 <pre><code># Show files in /etc that differ from the base image (canonical rpm-ostree view)
 run0 /usr/bin/ostree admin config-diff 2>/dev/null | /usr/bin/head -n 50</code></pre>
 
@@ -289,6 +298,7 @@ run0 /usr/bin/ostree admin config-diff 2>/dev/null | /usr/bin/head -n 50</code><
 </div>
 
 <h3>4. Inspect /var state</h3>
+<p>On atomic systems, <code>/var</code> holds system-level persistent state (network profiles, Bluetooth keys, container storage) that survives reboots but is not part of the base image. Unlike <code>/home</code>, it is owned by the system, not by you.</p>
 <pre><code># Identify large or important persistent state in /var
 run0 /usr/bin/du -sh /var/lib/* 2>/dev/null | sort -rh | head -n 20</code></pre>
 
@@ -317,14 +327,15 @@ run0 /usr/bin/du -sh /var/lib/* 2>/dev/null | sort -rh | head -n 20</code></pre>
 /usr/bin/mkdir -p /var/home/$(/usr/bin/whoami)/secureblue-backup/{configs,packages,deployments,scripts}</code></pre>
 
 <h3>2. Export deployment state</h3>
-<pre><code># Save full rpm-ostree status for reference
+<pre><code># We save the deployment metadata so we know exactly which base image to rebase to later
 rpm-ostree status --json 2>/dev/null > /var/home/$(/usr/bin/whoami)/secureblue-backup/deployments/rpm-ostree-status.json
 
 # Save the current image reference in plain text for quick rebasing
 rpm-ostree status --booted 2>/dev/null | /usr/bin/grep -o 'ostree-[^[:space:]]*' | /usr/bin/head -n 1 > /var/home/$(/usr/bin/whoami)/secureblue-backup/deployments/current-image-ref.txt</code></pre>
 
 <h3>3. Export layered package list</h3>
-<pre><code># Extract layered packages from the booted deployment via JSON (robust against formatting changes)
+<pre><code># Layered packages live outside the base image in a separate layer.
+# We extract them from rpm-ostree's JSON metadata to avoid brittle text parsing.
 /usr/bin/python3 -c "import sys,json; d=json.load(sys.stdin); [print(p) for dep in d.get('deployments',[]) if dep.get('booted') for p in dep.get('requested-packages',[])]" < <(rpm-ostree status --json) > /var/home/$(/usr/bin/whoami)/secureblue-backup/packages/layered-packages.txt
 
 # Also capture the exact rpm-ostree install command for documentation
