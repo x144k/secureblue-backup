@@ -206,7 +206,7 @@
 <p>Think of the stack as layers of paint. The green base layer (<code>/usr</code>) is factory paint; you never touch it. The blue, purple, orange, and red layers above it are your personal paint - configs, packages, and data. When disaster strikes, we throw away the canvas and repaint the base, then re-apply only your personal layers.</p>
 
 <h2 class="topic">Prerequisites</h2>
-<p>This guide assumes you are running secureblue (or another rpm-ostree system) and are comfortable with terminal commands. Three axioms govern atomic backup strategy. First, <code>/usr</code> is a read-only OSTree checkout-managed base state that is never backed up; it is rebased. Second, Btrfs deployment snapshots are local-only recovery tools; they die with the disk and do not constitute backups. Third, a backup plan is only valid after it has been tested end-to-end. If you do not understand why <code>/usr</code> is excluded or why snapshots are insufficient, review the <a href="https://coreos.github.io/rpm-ostree/administrator-handbook/">rpm-ostree administrator handbook</a> before proceeding.</p>
+<p>This guide assumes you are running secureblue (or another rpm-ostree system) and are comfortable with terminal commands. Three axioms govern atomic backup strategy. First, <code>/usr</code> is a read-only OSTree checkout - managed base state that is never backed up; it is rebased. Second, Btrfs deployment snapshots are local-only recovery tools; they die with the disk and do not constitute backups. Third, a backup plan is only valid after it has been tested end-to-end. If you do not understand why <code>/usr</code> is excluded or why snapshots are insufficient, review the <a href="https://coreos.github.io/rpm-ostree/administrator-handbook/">rpm-ostree administrator handbook</a> before proceeding.</p>
 
 <div class="note">
 <strong>New to atomic systems?</strong> On a traditional Linux distro, you install packages directly into <code>/usr</code> and they become part of your system forever. On an atomic system, <code>/usr</code> is a read-only snapshot (an <em>OSTree deployment</em>) that is replaced entirely during updates. Your changes - config files, layered packages, service state - live in separate <em>overlay</em> layers on top of that snapshot. This guide backs up those overlays so you can re-apply them to a fresh deployment.
@@ -616,7 +616,7 @@ cd ~ && borg extract /run/media/$(/usr/bin/whoami)/backup-disk/YOUR-REPO-FOLDER/
 
 <h3>5. Validate the restored system</h3>
 <pre><code># Verify deployment and layered packages
-run0 /usr/bin/rpm-ostree status
+/usr/bin/rpm-ostree status
 
 # Verify /etc drift is restored (count should be non-zero and expected)
 run0 /usr/bin/ostree admin config-diff | /usr/bin/wc -l
