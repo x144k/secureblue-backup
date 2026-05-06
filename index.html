@@ -171,6 +171,7 @@
 </style>
 <base target="_blank">
 <base target="_blank">
+<base target="_blank">
 </head>
 <body>
 <div class="container">
@@ -303,7 +304,7 @@ run0 /usr/bin/ostree admin config-diff 2>/dev/null | /usr/bin/head -n 50</code><
 run0 /usr/bin/du -sh /var/lib/* 2>/dev/null | sort -rh | head -n 20</code></pre>
 
 <div class="note">
-<strong>Preserve:</strong> <code>/var/lib/NetworkManager</code> (connection profiles and keys), <code>/var/lib/bluetooth</code> (pairing keys), <code>/var/lib/boltd</code> (Thunderbolt authorization), and <code>/var/lib/containers</code> (Podman images) if you use containers.<br><br>
+<strong>Preserve:</strong> <code>/var/lib/NetworkManager</code> (connection profiles and keys) <em>only if you use NetworkManager-managed VPNs</em>; skip this if you use a standalone VPN client like IVPN, which stores settings in <code>/opt/ivpn/etc/</code> and <code>~/.config/ivpn/</code>. Also preserve <code>/var/lib/bluetooth</code> (pairing keys), <code>/var/lib/boltd</code> (Thunderbolt authorization), and <code>/var/lib/containers</code> (Podman images) if you use containers.<br><br>
 <strong>Skip:</strong> <code>/var/lib/rpm-ostree</code> (deployment metadata tied to this disk), <code>/var/lib/systemd</code> (machine-specific random seeds and runtime tracking), auto-generated service state (<code>fwupd</code>, <code>chrony</code>, <code>alsa</code>, <code>upower</code>), ephemeral system state (<code>AccountsService</code>, <code>lastlog</code>), and metrics (<code>rpm-ostree-countme</code>, <code>secureblue</code>).
 </div>
 
@@ -369,7 +370,7 @@ run0 /usr/bin/tar czpf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/et
 EOF</code></pre>
 
 <p>Edit the manifest to match your needs, then archive the selected paths:</p>
-<pre><code># Example: backing up NetworkManager state only
+<pre><code># Example: backing up NetworkManager state only (skip if you use IVPN or another standalone VPN)
 run0 /usr/bin/tar czpf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/var-selective.tar.gz  /var/lib/NetworkManager  /var/spool</code></pre>
 
 <div class="note">
@@ -381,6 +382,14 @@ run0 /usr/bin/tar czpf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/va
 # This step captures any user-level units in ~/.config/systemd/user
 /usr/bin/mkdir -p /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/user-systemd
 /usr/bin/cp -r ~/.config/systemd/user/* /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/user-systemd/ 2>/dev/null || true</code></pre>
+
+<h3>7. Fix backup ownership</h3>
+<pre><code># The tar archives above were created with run0 (root), so Pika cannot read them.
+# Fix ownership so your user can back them up in Phase 2.
+run0 /usr/bin/chown -R $(/usr/bin/whoami):$(/usr/bin/whoami) /var/home/$(/usr/bin/whoami)/secureblue-backup</code></pre>
+<div class="note">
+<strong>Note:</strong> Without this step, Pika Backup will fail with <code>Permission denied</code> when trying to read <code>etc-backup.tar.gz</code> and <code>var-selective.tar.gz</code>.
+</div>
 
 <h2 class="phase">Phase 2: User Data Backup with Pika Backup</h2>
 
@@ -435,16 +444,20 @@ run0 /usr/bin/tar czpf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/va
 <strong>WARNING:</strong> Pika's <strong>Exclude Folders</strong> and <strong>Exclude Files</strong> options require the path to already exist on disk. If you select a path that does not exist, Pika may default to the parent directory and unintentionally exclude your entire home folder. For safety, use <strong>Exclude Pattern</strong> for any path that might not exist.
 </div>
 
-<p><strong>Step 1: Enable suggested exclusions.</strong> Pika provides checked suggestions for common ephemeral data. I enabled these:</p>
+<p><strong>Step 1: Enable suggested exclusions.</strong> Pika provides checked suggestions for common ephemeral data. Enable these:</p>
 <ul>
  <li><strong>Caches</strong> - covers <code>.cache</code> and <code>.thumbnails</code></li>
  <li><strong>Trash</strong> - covers <code>.local/share/Trash</code></li>
- <li><strong>Flatpak App Installations</strong> - covers <code>.var/app</code> runtime data (documents and data inside Flatpaks are still backed up)</li>
  <li><strong>Virtual Machines and Containers</strong> - covers large VM images if present</li>
 </ul>
 
+<p><strong>Do NOT enable:</strong></p>
+<ul>
+ <li><strong>Flatpak App Installations</strong> — this excludes <code>.var/app/</code>, which contains your actual Flatpak app data, settings, and documents. The system-wide runtime installations in <code>/var/lib/flatpak</code> are redownloadable and handled separately in the system state capture if you choose to back them up; your personal app data is not.</li>
+</ul>
+
 <div class="note">
-<strong>Note:</strong> Pika's suggested exclusion "Flatpak App Installations" refers to application runtime caches, not your personal app data. Your Flatpak app data lives in <code>.var/app</code> inside your home directory. If you exclude <code>.var/app</code>, you will not back up documents, settings, or state stored inside Flatpak applications. The system-wide Flatpak runtime installations in <code>/var/lib/flatpak</code> are handled separately in the system state capture if you choose to back them up.
+<strong>Note:</strong> If you exclude <code>.var/app</code>, you will lose all documents, settings, and state stored inside Flatpak applications (Discord, browsers, games, etc.). Only enable this if you truly have no Flatpak app data worth preserving.
 </div>
 
 <p><strong>Step 2: Add custom patterns.</strong> Click <strong>Exclude Pattern</strong> and ensure the type is set to <strong>Unix Filename Pattern</strong> (the default). I added these patterns after noticing they were eating space:</p>
