@@ -370,7 +370,7 @@ run0 /usr/bin/tar czpf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/et
 EOF</code></pre>
 
 <p>Edit the manifest to match your needs, then archive the selected paths:</p>
-<pre><code># Example: backing up NetworkManager state only (skip if you use IVPN or another standalone VPN)
+<pre><code># Example: backing up NetworkManager state and mail/cron spools only (skip if you use IVPN or another standalone VPN)
 run0 /usr/bin/tar czpf /var/home/$(/usr/bin/whoami)/secureblue-backup/configs/var-selective.tar.gz  /var/lib/NetworkManager  /var/spool</code></pre>
 
 <div class="note">
